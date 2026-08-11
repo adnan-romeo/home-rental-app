@@ -63,6 +63,30 @@
     }
   }
 
+  async function createCompressedDataUrl(file, maxDimension = 1200, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxDimension / Math.max(img.width, img.height));
+          const width = Math.round(img.width * scale);
+          const height = Math.round(img.height * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('Failed to read image file.'));
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   // Store photos for listing form
   let currentListingPhotos = [];
 
@@ -72,13 +96,21 @@
     if (!previewContainer) return;
     previewContainer.innerHTML = '';
 
+    const MAX_FILE_SIZE = 8 * 1024 * 1024; // 8 MB per file
+    let skippedLargeFiles = false;
+
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        currentListingPhotos.push(e.target.result);
+      if (file.size > MAX_FILE_SIZE) {
+        skippedLargeFiles = true;
+        continue;
+      }
+      try {
+        const compressedDataUrl = await createCompressedDataUrl(file);
+        currentListingPhotos.push(compressedDataUrl);
+
         const img = document.createElement('img');
-        img.src = e.target.result;
+        img.src = compressedDataUrl;
         img.className = 'photo-thumb';
         img.style.width = '80px';
         img.style.height = '80px';
@@ -87,12 +119,17 @@
         img.style.cursor = 'pointer';
         img.title = 'Click to remove';
         img.addEventListener('click', () => {
-          currentListingPhotos = currentListingPhotos.filter((p) => p !== e.target.result);
+          currentListingPhotos = currentListingPhotos.filter((p) => p !== compressedDataUrl);
           img.remove();
         });
         previewContainer.appendChild(img);
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.error('Image processing failed:', err);
+      }
+    }
+
+    if (skippedLargeFiles) {
+      showAlert('landlordAlert', 'One or more photos were too large and were skipped. Use smaller images or fewer files.', 'error');
     }
   }
 
