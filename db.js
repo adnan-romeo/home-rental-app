@@ -11,7 +11,7 @@ const db = createClient({
 
 async function init() {
   // Create tables if they do not exist.
-  await db.execute(`
+  await db.executeMultiple(`
       CREATE TABLE IF NOT EXISTS users (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         name          TEXT NOT NULL,
