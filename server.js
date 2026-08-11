@@ -16,8 +16,8 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(
@@ -71,6 +71,37 @@ function parseListingType(value) {
 
 function parseBooleanFlag(value) {
   return value === true || value === 1 || value === '1' || value === 'true' ? 1 : 0;
+}
+
+function parseListingPhotos(value) {
+  if (Array.isArray(value)) {
+    return value.filter((photo) => typeof photo === 'string' && photo.trim().length > 0);
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((photo) => typeof photo === 'string' && photo.trim().length > 0);
+  } catch (err) {
+    return [];
+  }
+}
+
+function hydrateListing(row) {
+  if (!row) return row;
+  return { ...row, photos: parseListingPhotos(row.photos) };
+}
+
+function hydrateListings(rows) {
+  return rows.map(hydrateListing);
+}
+
+function photosToStorage(value) {
+  return JSON.stringify(parseListingPhotos(value));
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +191,7 @@ app.get(
       const listings = db
         .prepare('SELECT * FROM listings WHERE landlord_id = ? ORDER BY created_at DESC')
         .all(req.session.user.id);
-      return res.json({ listings });
+      return res.json({ listings: hydrateListings(listings) });
     }
 
     let query = "SELECT * FROM listings WHERE status = 'available'";
@@ -185,7 +216,7 @@ app.get(
     query += ' ORDER BY created_at DESC';
 
     const listings = db.prepare(query).all(...params);
-    res.json({ listings });
+    res.json({ listings: hydrateListings(listings) });
   })
 );
 
@@ -201,7 +232,7 @@ app.get(
       .get(req.params.id);
 
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
-    res.json({ listing });
+    res.json({ listing: hydrateListing(listing) });
   })
 );
 
@@ -209,7 +240,7 @@ app.post(
   '/api/listings',
   requireRole('landlord'),
   asyncRoute((req, res) => {
-    const { title, description, rent_fee, location, rooms, listing_type, is_sublet } = req.body;
+    const { title, description, rent_fee, location, rooms, listing_type, is_sublet, photos } = req.body;
     const normalizedType = parseListingType(listing_type);
 
     if (!isNonEmptyString(title) || !isNonEmptyString(location)) {
@@ -226,8 +257,8 @@ app.post(
 
     const info = db
       .prepare(
-        `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, listing_type, is_sublet, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'available')`
+        `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, listing_type, is_sublet, photos, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`
       )
       .run(
         req.session.user.id,
@@ -237,11 +268,12 @@ app.post(
         location.trim(),
         roomCount,
         normalizedType,
-        parseBooleanFlag(is_sublet)
+        parseBooleanFlag(is_sublet),
+        photosToStorage(photos)
       );
 
     const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(info.lastInsertRowid);
-    res.status(201).json({ listing });
+    res.status(201).json({ listing: hydrateListing(listing) });
   })
 );
 
@@ -255,7 +287,7 @@ app.put(
       return res.status(403).json({ error: 'You can only edit your own listings.' });
     }
 
-    const { title, description, rent_fee, location, rooms, status, listing_type, is_sublet } = req.body;
+    const { title, description, rent_fee, location, rooms, status, listing_type, is_sublet, photos } = req.body;
 
     const newTitle = isNonEmptyString(title) ? title.trim() : listing.title;
     const newDescription = description !== undefined ? String(description).trim() : listing.description;
@@ -265,13 +297,14 @@ app.put(
     const newStatus = status === 'available' || status === 'rented' ? status : listing.status;
     const newType = listing_type === 'rental' || listing_type === 'roommate' ? listing_type : listing.listing_type || 'rental';
     const newSublet = is_sublet !== undefined ? parseBooleanFlag(is_sublet) : listing.is_sublet;
+    const newPhotos = photos !== undefined ? photosToStorage(photos) : listing.photos;
 
     db.prepare(
-      `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, listing_type = ?, is_sublet = ?, status = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newFee, newLocation, newRooms, newType, newSublet, newStatus, listing.id);
+      `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, listing_type = ?, is_sublet = ?, photos = ?, status = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newFee, newLocation, newRooms, newType, newSublet, newPhotos, newStatus, listing.id);
 
     const updated = db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id);
-    res.json({ listing: updated });
+    res.json({ listing: hydrateListing(updated) });
   })
 );
 

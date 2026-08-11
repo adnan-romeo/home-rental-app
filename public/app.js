@@ -63,6 +63,39 @@
     }
   }
 
+  // Store photos for listing form
+  let currentListingPhotos = [];
+
+  async function handlePhotoSelection(files) {
+    currentListingPhotos = [];
+    const previewContainer = document.getElementById('photoPreview');
+    if (!previewContainer) return;
+    previewContainer.innerHTML = '';
+
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        currentListingPhotos.push(e.target.result);
+        const img = document.createElement('img');
+        img.src = e.target.result;
+        img.className = 'photo-thumb';
+        img.style.width = '80px';
+        img.style.height = '80px';
+        img.style.borderRadius = '6px';
+        img.style.objectFit = 'cover';
+        img.style.cursor = 'pointer';
+        img.title = 'Click to remove';
+        img.addEventListener('click', () => {
+          currentListingPhotos = currentListingPhotos.filter((p) => p !== e.target.result);
+          img.remove();
+        });
+        previewContainer.appendChild(img);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
   // ---------------------------------------------------------------------
   // Theme toggle (shared across pages)
   // ---------------------------------------------------------------------
@@ -253,8 +286,12 @@
   function listingCardHtml(l) {
     const typeLabel = l.listing_type === 'roommate' ? 'Roommate finder' : 'Rental listing';
     const actionLabel = l.listing_type === 'roommate' ? 'Request to Join' : 'Request to Rent';
+    const photoHtml = l.photos && l.photos.length > 0
+      ? `<div class="listing-photo" style="background-image: url('${l.photos[0]}'); width: 100%; height: 180px; border-radius: 8px 8px 0 0; background-size: cover; background-position: center; margin-bottom: 12px;"></div>`
+      : '';
     return `
       <div class="listing-card">
+        ${photoHtml}
         <h3>${escapeHtml(l.title)}</h3>
         <div class="listing-badges">
           <span class="badge badge-type">${escapeHtml(typeLabel)}</span>
@@ -274,9 +311,15 @@
       backdrop.className = 'detail-modal-backdrop';
       const typeLabel = listing.listing_type === 'roommate' ? 'Roommate finder' : 'Rental listing';
       const actionLabel = listing.listing_type === 'roommate' ? 'Request to Join' : 'Request to Rent';
+      const photosHtml = listing.photos && listing.photos.length > 0
+        ? `<div class="detail-photos" style="margin-bottom: 16px;">
+             ${listing.photos.map((photo) => `<img src="${photo}" style="width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px; margin-bottom: 8px;" />`).join('')}
+           </div>`
+        : '';
       backdrop.innerHTML = `
         <div class="detail-modal">
           <div class="close-row"><button class="btn btn-secondary btn-sm" id="closeModal">Close</button></div>
+          ${photosHtml}
           <h2 style="margin-top:0;">${escapeHtml(listing.title)}</h2>
           <div class="listing-badges" style="margin-bottom:12px;">
             <span class="badge badge-type">${escapeHtml(typeLabel)}</span>
@@ -382,6 +425,13 @@
 
     document.getElementById('listingForm').addEventListener('submit', submitListingForm);
     document.getElementById('listingCancelEdit').addEventListener('click', resetListingForm);
+    
+    const photoInput = document.getElementById('lPhotos');
+    if (photoInput) {
+      photoInput.addEventListener('change', (e) => {
+        handlePhotoSelection(e.target.files);
+      });
+    }
 
     loadLandlordDashboard();
     loadMyListings();
@@ -452,6 +502,30 @@
     document.getElementById('lLocation').value = listing.location;
     document.getElementById('lListingType').value = listing.listing_type || 'rental';
     document.getElementById('lIsSublet').checked = Boolean(listing.is_sublet);
+    
+    // Load existing photos
+    currentListingPhotos = listing.photos || [];
+    const previewContainer = document.getElementById('photoPreview');
+    if (previewContainer) {
+      previewContainer.innerHTML = '';
+      currentListingPhotos.forEach((photoData) => {
+        const img = document.createElement('img');
+        img.src = photoData;
+        img.className = 'photo-thumb';
+        img.style.width = '80px';
+        img.style.height = '80px';
+        img.style.borderRadius = '6px';
+        img.style.objectFit = 'cover';
+        img.style.cursor = 'pointer';
+        img.title = 'Click to remove';
+        img.addEventListener('click', () => {
+          currentListingPhotos = currentListingPhotos.filter((p) => p !== photoData);
+          img.remove();
+        });
+        previewContainer.appendChild(img);
+      });
+    }
+    
     document.getElementById('listingFormTitle').textContent = 'Edit Listing';
     document.getElementById('listingSubmitBtn').textContent = 'Save Changes';
     document.getElementById('listingCancelEdit').classList.remove('hidden');
@@ -463,6 +537,9 @@
     document.getElementById('listingId').value = '';
     document.getElementById('lListingType').value = 'rental';
     document.getElementById('lIsSublet').checked = false;
+    currentListingPhotos = [];
+    const previewContainer = document.getElementById('photoPreview');
+    if (previewContainer) previewContainer.innerHTML = '';
     document.getElementById('listingFormTitle').textContent = 'Create a New Listing';
     document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
     document.getElementById('listingCancelEdit').classList.add('hidden');
@@ -478,7 +555,8 @@
       rooms: Number(document.getElementById('lRooms').value),
       location: document.getElementById('lLocation').value.trim(),
       listing_type: document.getElementById('lListingType').value,
-      is_sublet: document.getElementById('lIsSublet').checked
+      is_sublet: document.getElementById('lIsSublet').checked,
+      photos: currentListingPhotos
     };
     try {
       if (id) {

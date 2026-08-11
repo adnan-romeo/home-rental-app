@@ -34,6 +34,7 @@ db.exec(`
     rooms        INTEGER NOT NULL,
     listing_type TEXT NOT NULL DEFAULT 'rental' CHECK (listing_type IN ('rental', 'roommate')),
     is_sublet    INTEGER NOT NULL DEFAULT 0 CHECK (is_sublet IN (0, 1)),
+    photos       TEXT NOT NULL DEFAULT '[]',
     status       TEXT NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'rented')),
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (landlord_id) REFERENCES users(id) ON DELETE CASCADE
@@ -83,5 +84,10 @@ if (!listingColumns.includes('listing_type')) {
 if (!listingColumns.includes('is_sublet')) {
   db.exec('ALTER TABLE listings ADD COLUMN is_sublet INTEGER NOT NULL DEFAULT 0');
 }
+if (!listingColumns.includes('photos')) {
+  db.exec("ALTER TABLE listings ADD COLUMN photos TEXT NOT NULL DEFAULT '[]'");
+}
+
+db.prepare("UPDATE listings SET photos = '[]' WHERE photos IS NULL OR TRIM(photos) = ''").run();
 
 module.exports = db;
