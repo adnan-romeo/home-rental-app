@@ -6,7 +6,7 @@ const { createClient } = require('@libsql/client');
 
 const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
-  auth: { token: process.env.TURSO_AUTH_TOKEN }
+  authToken: process.env.TURSO_AUTH_TOKEN
 });
 
 async function init() {
