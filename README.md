@@ -50,7 +50,7 @@ To reset all data, stop the server and delete `rental_app.db` (and the
 5. As the landlord: go to **Payment Tracker** and toggle the unit between
    Paid/Unpaid for the current month.
 6. As the renter: check **My Active Rental** to see the live payment status.
-7. Use the 🌙/☀️ toggle in the header to switch themes — your preference is
+7. Use the theme toggle in the header to switch themes — your preference is
    saved in `localStorage` and persists across refreshes.
 
 ## Database Schema

@@ -13,7 +13,7 @@
   <nav>
     <span class="user-chip" id="userChip">...</span>
     <button class="theme-toggle" id="themeToggle" type="button">
-      <span id="themeIcon">🌙</span> <span id="themeLabel">Dark</span>
+      <span id="themeLabel">Dark</span>
     </button>
     <button class="btn btn-secondary btn-sm" id="logoutBtn" type="button">Log Out</button>
   </nav>
@@ -117,6 +117,20 @@
             <div class="field">
               <label for="lLocation">Location</label>
               <input class="input" type="text" id="lLocation" required />
+            </div>
+            <div class="field">
+              <label for="lListingType">Listing Type</label>
+              <select class="input" id="lListingType">
+                <option value="rental">Rental listing</option>
+                <option value="roommate">Roommate finder</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="lIsSublet">Sublet</label>
+              <label class="checkbox-row">
+                <input type="checkbox" id="lIsSublet" />
+                <span>This flat is for sublet</span>
+              </label>
             </div>
           </div>
           <div class="btn-row">

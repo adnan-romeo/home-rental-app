@@ -8,10 +8,13 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 
 const db = require('./db');
+const SQLiteSessionStore = require('./session-store');
 const { requireAuth, requireRole } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -23,8 +26,11 @@ app.use(
     secret: process.env.SESSION_SECRET || 'dev-secret-change-in-production',
     resave: false,
     saveUninitialized: false,
+    store: new SQLiteSessionStore(),
     cookie: {
       httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
       maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
     }
   })
@@ -57,6 +63,14 @@ function asyncRoute(fn) {
 
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.trim().length > 0;
+}
+
+function parseListingType(value) {
+  return value === 'roommate' ? 'roommate' : 'rental';
+}
+
+function parseBooleanFlag(value) {
+  return value === true || value === 1 || value === '1' || value === 'true' ? 1 : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +194,7 @@ app.get(
   asyncRoute((req, res) => {
     const listing = db
       .prepare(
-        `SELECT listings.*, users.name AS landlord_name, users.phone AS landlord_phone, users.email AS landlord_email
+        `SELECT listings.*, users.name AS poster_name, users.phone AS poster_phone, users.email AS poster_email
          FROM listings JOIN users ON users.id = listings.landlord_id
          WHERE listings.id = ?`
       )
@@ -195,7 +209,8 @@ app.post(
   '/api/listings',
   requireRole('landlord'),
   asyncRoute((req, res) => {
-    const { title, description, rent_fee, location, rooms } = req.body;
+    const { title, description, rent_fee, location, rooms, listing_type, is_sublet } = req.body;
+    const normalizedType = parseListingType(listing_type);
 
     if (!isNonEmptyString(title) || !isNonEmptyString(location)) {
       return res.status(400).json({ error: 'Title and location are required.' });
@@ -211,10 +226,19 @@ app.post(
 
     const info = db
       .prepare(
-        `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, status)
-         VALUES (?, ?, ?, ?, ?, ?, 'available')`
+        `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, listing_type, is_sublet, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'available')`
       )
-      .run(req.session.user.id, title.trim(), (description || '').trim(), fee, location.trim(), roomCount);
+      .run(
+        req.session.user.id,
+        title.trim(),
+        (description || '').trim(),
+        fee,
+        location.trim(),
+        roomCount,
+        normalizedType,
+        parseBooleanFlag(is_sublet)
+      );
 
     const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(info.lastInsertRowid);
     res.status(201).json({ listing });
@@ -231,7 +255,7 @@ app.put(
       return res.status(403).json({ error: 'You can only edit your own listings.' });
     }
 
-    const { title, description, rent_fee, location, rooms, status } = req.body;
+    const { title, description, rent_fee, location, rooms, status, listing_type, is_sublet } = req.body;
 
     const newTitle = isNonEmptyString(title) ? title.trim() : listing.title;
     const newDescription = description !== undefined ? String(description).trim() : listing.description;
@@ -239,10 +263,12 @@ app.put(
     const newFee = rent_fee !== undefined && Number.isFinite(Number(rent_fee)) && Number(rent_fee) > 0 ? Number(rent_fee) : listing.rent_fee;
     const newRooms = rooms !== undefined && Number.isInteger(Number(rooms)) && Number(rooms) > 0 ? Number(rooms) : listing.rooms;
     const newStatus = status === 'available' || status === 'rented' ? status : listing.status;
+    const newType = listing_type === 'rental' || listing_type === 'roommate' ? listing_type : listing.listing_type || 'rental';
+    const newSublet = is_sublet !== undefined ? parseBooleanFlag(is_sublet) : listing.is_sublet;
 
     db.prepare(
-      `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, status = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newFee, newLocation, newRooms, newStatus, listing.id);
+      `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, listing_type = ?, is_sublet = ?, status = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newFee, newLocation, newRooms, newType, newSublet, newStatus, listing.id);
 
     const updated = db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id);
     res.json({ listing: updated });

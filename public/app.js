@@ -44,7 +44,7 @@
   }
 
   function formatMoney(n) {
-    return '$' + Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return '৳' + Number(n).toLocaleString('en-BD', { maximumFractionDigits: 0 });
   }
 
   function formatDate(iso) {
@@ -83,16 +83,9 @@
   }
 
   function updateThemeButton(theme) {
-    const icon = document.getElementById('themeIcon');
     const label = document.getElementById('themeLabel');
-    if (!icon || !label) return;
-    if (theme === 'dark') {
-      icon.textContent = '☀️';
-      label.textContent = 'Light';
-    } else {
-      icon.textContent = '🌙';
-      label.textContent = 'Dark';
-    }
+    if (!label) return;
+    label.textContent = theme === 'dark' ? 'Light' : 'Dark';
   }
 
   // ---------------------------------------------------------------------
@@ -258,10 +251,16 @@
   }
 
   function listingCardHtml(l) {
+    const typeLabel = l.listing_type === 'roommate' ? 'Roommate finder' : 'Rental listing';
+    const actionLabel = l.listing_type === 'roommate' ? 'Request to Join' : 'Request to Rent';
     return `
       <div class="listing-card">
         <h3>${escapeHtml(l.title)}</h3>
-        <div class="meta">📍 ${escapeHtml(l.location)} &middot; ${l.rooms} room(s)</div>
+        <div class="listing-badges">
+          <span class="badge badge-type">${escapeHtml(typeLabel)}</span>
+          ${l.is_sublet ? '<span class="badge badge-sublet">Sublet</span>' : ''}
+        </div>
+        <div class="meta">Location: ${escapeHtml(l.location)} &middot; ${l.rooms} room(s)</div>
         <div class="price">${formatMoney(l.rent_fee)}<span style="font-size:0.75rem;font-weight:500;color:var(--text-muted);">/mo</span></div>
         <div class="desc">${escapeHtml(l.description || 'No description provided.')}</div>
         <button class="btn btn-sm" data-view-listing="${l.id}">View Details</button>
@@ -273,19 +272,26 @@
       const { listing } = await api('GET', '/api/listings/' + id);
       const backdrop = document.createElement('div');
       backdrop.className = 'detail-modal-backdrop';
+      const typeLabel = listing.listing_type === 'roommate' ? 'Roommate finder' : 'Rental listing';
+      const actionLabel = listing.listing_type === 'roommate' ? 'Request to Join' : 'Request to Rent';
       backdrop.innerHTML = `
         <div class="detail-modal">
-          <div class="close-row"><button class="btn btn-secondary btn-sm" id="closeModal">Close ✕</button></div>
+          <div class="close-row"><button class="btn btn-secondary btn-sm" id="closeModal">Close</button></div>
           <h2 style="margin-top:0;">${escapeHtml(listing.title)}</h2>
-          <p class="meta">📍 ${escapeHtml(listing.location)} &middot; ${listing.rooms} room(s)</p>
+          <div class="listing-badges" style="margin-bottom:12px;">
+            <span class="badge badge-type">${escapeHtml(typeLabel)}</span>
+            ${listing.is_sublet ? '<span class="badge badge-sublet">Sublet</span>' : ''}
+          </div>
+          <p class="meta">Location: ${escapeHtml(listing.location)} &middot; ${listing.rooms} room(s)</p>
           <p class="price" style="font-size:1.4rem;">${formatMoney(listing.rent_fee)}/mo</p>
           <p>${escapeHtml(listing.description || 'No description provided.')}</p>
           <hr style="border-color:var(--border);" />
-          <p><strong>Landlord:</strong> ${escapeHtml(listing.landlord_name)}</p>
-          <p><strong>Phone:</strong> ${escapeHtml(listing.landlord_phone)}</p>
+          <p><strong>Posted by:</strong> ${escapeHtml(listing.poster_name)}</p>
+          <p><strong>Phone:</strong> ${escapeHtml(listing.poster_phone)}</p>
+          <p><strong>Email:</strong> ${escapeHtml(listing.poster_email)}</p>
           <div id="modalAlert"></div>
           ${listing.status === 'available'
-            ? `<button class="btn btn-block" id="requestBtn">Request to Rent</button>`
+            ? `<button class="btn btn-block" id="requestBtn">${escapeHtml(actionLabel)}</button>`
             : `<p class="badge badge-rented">Currently Rented</p>`}
         </div>`;
       document.body.appendChild(backdrop);
@@ -327,7 +333,7 @@
         <div class="row-item">
           <div class="row-main">
             <h4>${escapeHtml(r.title)}</h4>
-            <div class="meta">📍 ${escapeHtml(r.location)} &middot; ${formatMoney(r.rent_fee)}/mo &middot; requested ${formatDate(r.created_at)}</div>
+            <div class="meta">Location: ${escapeHtml(r.location)} &middot; ${formatMoney(r.rent_fee)}/mo &middot; requested ${formatDate(r.created_at)}</div>
           </div>
           <span class="badge badge-${r.status}">${r.status}</span>
         </div>
@@ -350,7 +356,7 @@
       const p = data.payment;
       el.innerHTML = `
         <h3 style="margin-top:0;">${escapeHtml(r.title)}</h3>
-        <p class="meta">📍 ${escapeHtml(r.location)} &middot; ${r.rooms} room(s) &middot; ${formatMoney(r.rent_fee)}/mo</p>
+        <p class="meta">Location: ${escapeHtml(r.location)} &middot; ${r.rooms} room(s) &middot; ${formatMoney(r.rent_fee)}/mo</p>
         <p><strong>Landlord:</strong> ${escapeHtml(r.landlord_name)} &middot; ${escapeHtml(r.landlord_phone)}</p>
         <p><strong>This month's rent (${escapeHtml(p.month)}):</strong>
           <span class="badge badge-${p.is_paid ? 'paid' : 'unpaid'}">${p.is_paid ? 'Paid' : 'Unpaid'}</span>
@@ -410,7 +416,11 @@
         <div class="row-item">
           <div class="row-main">
             <h4>${escapeHtml(l.title)}</h4>
-            <div class="meta">📍 ${escapeHtml(l.location)} &middot; ${l.rooms} room(s) &middot; ${formatMoney(l.rent_fee)}/mo</div>
+            <div class="listing-badges" style="margin: 0 0 6px;">
+              <span class="badge badge-type">${escapeHtml(l.listing_type === 'roommate' ? 'Roommate finder' : 'Rental listing')}</span>
+              ${l.is_sublet ? '<span class="badge badge-sublet">Sublet</span>' : ''}
+            </div>
+            <div class="meta">Location: ${escapeHtml(l.location)} &middot; ${l.rooms} room(s) &middot; ${formatMoney(l.rent_fee)}/mo</div>
           </div>
           <span class="badge badge-${l.status}">${l.status}</span>
           <div class="btn-row">
@@ -440,6 +450,8 @@
     document.getElementById('lRentFee').value = listing.rent_fee;
     document.getElementById('lRooms').value = listing.rooms;
     document.getElementById('lLocation').value = listing.location;
+    document.getElementById('lListingType').value = listing.listing_type || 'rental';
+    document.getElementById('lIsSublet').checked = Boolean(listing.is_sublet);
     document.getElementById('listingFormTitle').textContent = 'Edit Listing';
     document.getElementById('listingSubmitBtn').textContent = 'Save Changes';
     document.getElementById('listingCancelEdit').classList.remove('hidden');
@@ -449,6 +461,8 @@
   function resetListingForm() {
     document.getElementById('listingForm').reset();
     document.getElementById('listingId').value = '';
+    document.getElementById('lListingType').value = 'rental';
+    document.getElementById('lIsSublet').checked = false;
     document.getElementById('listingFormTitle').textContent = 'Create a New Listing';
     document.getElementById('listingSubmitBtn').textContent = 'Create Listing';
     document.getElementById('listingCancelEdit').classList.add('hidden');
@@ -462,7 +476,9 @@
       description: document.getElementById('lDescription').value.trim(),
       rent_fee: Number(document.getElementById('lRentFee').value),
       rooms: Number(document.getElementById('lRooms').value),
-      location: document.getElementById('lLocation').value.trim()
+      location: document.getElementById('lLocation').value.trim(),
+      listing_type: document.getElementById('lListingType').value,
+      is_sublet: document.getElementById('lIsSublet').checked
     };
     try {
       if (id) {
