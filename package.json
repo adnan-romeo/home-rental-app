@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Full-stack Home Rental Web Application (Node.js + Express + SQLite)",
   "main": "server.js",
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
     "start": "node server.js"
   },
