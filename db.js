@@ -11,8 +11,7 @@ const db = createClient({
 
 async function init() {
   // Create tables if they do not exist.
-  await db.execute({
-    sql: `
+  await db.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         name          TEXT NOT NULL,
@@ -74,23 +73,22 @@ async function init() {
       CREATE INDEX IF NOT EXISTS idx_requests_renter ON rental_requests(renter_id);
       CREATE INDEX IF NOT EXISTS idx_payments_listing ON payments(listing_id);
       CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
-    `
-  });
+    `);
 
   // Best-effort column additions for older local DB migrations.
   // If the column already exists the ALTER will fail; ignore errors.
   try {
-    await db.execute({ sql: "ALTER TABLE listings ADD COLUMN listing_type TEXT NOT NULL DEFAULT 'rental'" });
+    await db.execute("ALTER TABLE listings ADD COLUMN listing_type TEXT NOT NULL DEFAULT 'rental'");
   } catch (err) {}
   try {
-    await db.execute({ sql: 'ALTER TABLE listings ADD COLUMN is_sublet INTEGER NOT NULL DEFAULT 0' });
+    await db.execute('ALTER TABLE listings ADD COLUMN is_sublet INTEGER NOT NULL DEFAULT 0');
   } catch (err) {}
   try {
-    await db.execute({ sql: "ALTER TABLE listings ADD COLUMN photos TEXT NOT NULL DEFAULT '[]'" });
+    await db.execute("ALTER TABLE listings ADD COLUMN photos TEXT NOT NULL DEFAULT '[]'");
   } catch (err) {}
 
   try {
-    await db.execute({ sql: "UPDATE listings SET photos = '[]' WHERE photos IS NULL OR TRIM(photos) = ''" });
+    await db.execute("UPDATE listings SET photos = '[]' WHERE photos IS NULL OR TRIM(photos) = ''");
   } catch (err) {}
 }
 

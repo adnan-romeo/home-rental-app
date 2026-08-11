@@ -409,15 +409,15 @@ app.put(
     }
 
     // Transaction: try to run statements atomically using BEGIN/COMMIT.
-    await db.execute({ sql: 'BEGIN' });
+    await db.execute('BEGIN');
     try {
       await db.execute({ sql: "UPDATE rental_requests SET status = 'accepted' WHERE id = ?", args: [request.id] });
       await db.execute({ sql: "UPDATE listings SET status = 'rented' WHERE id = ?", args: [listing.id] });
       await db.execute({ sql: "UPDATE rental_requests SET status = 'rejected' WHERE listing_id = ? AND id != ? AND status = 'pending'", args: [listing.id, request.id] });
       await db.execute({ sql: `INSERT OR IGNORE INTO payments (listing_id, renter_id, month, is_paid, amount) VALUES (?, ?, ?, 0, ?)`, args: [listing.id, request.renter_id, currentMonth(), listing.rent_fee] });
-      await db.execute({ sql: 'COMMIT' });
+      await db.execute('COMMIT');
     } catch (err) {
-      await db.execute({ sql: 'ROLLBACK' });
+      await db.execute('ROLLBACK');
       throw err;
     }
 
