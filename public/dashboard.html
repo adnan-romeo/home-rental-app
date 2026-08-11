@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HomeNest - Dashboard</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body data-page="dashboard">
+
+<header class="navbar">
+  <div class="brand"><span class="brand-mark">H</span> HomeNest</div>
+  <nav>
+    <span class="user-chip" id="userChip">...</span>
+    <button class="theme-toggle" id="themeToggle" type="button">
+      <span id="themeIcon">🌙</span> <span id="themeLabel">Dark</span>
+    </button>
+    <button class="btn btn-secondary btn-sm" id="logoutBtn" type="button">Log Out</button>
+  </nav>
+</header>
+
+<div class="container">
+
+  <!-- ============ RENTER VIEW ============ -->
+  <div id="renterView" class="hidden">
+    <h1 class="page-title">Browse Rentals</h1>
+    <p class="page-subtitle">Find an available property and send a request to rent it.</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="browse">Browse Listings</button>
+      <button class="tab-btn" data-tab="myRequests">My Requests</button>
+      <button class="tab-btn" data-tab="myRental">My Active Rental</button>
+    </div>
+
+    <div id="renterAlert"></div>
+
+    <!-- Browse -->
+    <div id="tab-browse" class="tab-panel">
+      <div class="filter-bar">
+        <div class="field">
+          <label for="fLocation">Location</label>
+          <input class="input" type="text" id="fLocation" placeholder="e.g. Dhaka" />
+        </div>
+        <div class="field">
+          <label for="fMinRent">Min Rent</label>
+          <input class="input" type="number" id="fMinRent" min="0" placeholder="0" />
+        </div>
+        <div class="field">
+          <label for="fMaxRent">Max Rent</label>
+          <input class="input" type="number" id="fMaxRent" min="0" placeholder="Any" />
+        </div>
+        <div class="field">
+          <label for="fRooms">Rooms</label>
+          <input class="input" type="number" id="fRooms" min="1" placeholder="Any" />
+        </div>
+        <button class="btn" id="applyFilters" type="button">Search</button>
+        <button class="btn btn-secondary" id="clearFilters" type="button">Clear</button>
+      </div>
+      <div class="grid" id="listingsGrid"></div>
+    </div>
+
+    <!-- My Requests -->
+    <div id="tab-myRequests" class="tab-panel hidden">
+      <div class="card panel">
+        <h2 class="section-title">Sent Requests</h2>
+        <div id="myRequestsList"></div>
+      </div>
+    </div>
+
+    <!-- My Active Rental -->
+    <div id="tab-myRental" class="tab-panel hidden">
+      <div class="card panel">
+        <h2 class="section-title">My Active Rental</h2>
+        <div id="myRentalInfo"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LANDLORD VIEW ============ -->
+  <div id="landlordView" class="hidden">
+    <h1 class="page-title">Landlord Dashboard</h1>
+    <p class="page-subtitle">Manage your listings, requests, and rent payments.</p>
+
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="myListings">My Listings</button>
+      <button class="tab-btn" data-tab="incomingRequests">Requests <span id="pendingCountBadge"></span></button>
+      <button class="tab-btn" data-tab="payments">Payment Tracker</button>
+    </div>
+
+    <div id="landlordAlert"></div>
+
+    <!-- My Listings -->
+    <div id="tab-myListings" class="tab-panel">
+      <div class="card panel">
+        <h2 class="section-title" id="listingFormTitle">Create a New Listing</h2>
+        <form id="listingForm">
+          <input type="hidden" id="listingId" />
+          <div class="field">
+            <label for="lTitle">Title</label>
+            <input class="input" type="text" id="lTitle" required />
+          </div>
+          <div class="field">
+            <label for="lDescription">Description</label>
+            <textarea class="input" id="lDescription" rows="3"></textarea>
+          </div>
+          <div class="filter-bar" style="padding:0;border:none;background:transparent;margin-bottom:0;">
+            <div class="field">
+              <label for="lRentFee">Monthly Rent</label>
+              <input class="input" type="number" id="lRentFee" min="1" required />
+            </div>
+            <div class="field">
+              <label for="lRooms">Rooms</label>
+              <input class="input" type="number" id="lRooms" min="1" required />
+            </div>
+            <div class="field">
+              <label for="lLocation">Location</label>
+              <input class="input" type="text" id="lLocation" required />
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" type="submit" id="listingSubmitBtn">Create Listing</button>
+            <button class="btn btn-secondary hidden" type="button" id="listingCancelEdit">Cancel Edit</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card panel">
+        <h2 class="section-title">Your Listings</h2>
+        <div id="myListingsList"></div>
+      </div>
+    </div>
+
+    <!-- Incoming Requests -->
+    <div id="tab-incomingRequests" class="tab-panel hidden">
+      <div class="card panel">
+        <h2 class="section-title">Rental Requests</h2>
+        <div id="incomingRequestsList"></div>
+      </div>
+    </div>
+
+    <!-- Payments -->
+    <div id="tab-payments" class="tab-panel hidden">
+      <div class="card panel">
+        <h2 class="section-title">Rent Payment Tracker &mdash; Current Month</h2>
+        <div id="paymentsList"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer class="app-footer">HomeNest &middot; a demo rental marketplace</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

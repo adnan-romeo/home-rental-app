@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HomeNest - Find or List a Rental</title>
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body data-page="auth">
+
+<header class="navbar">
+  <div class="brand"><span class="brand-mark">H</span> HomeNest</div>
+  <nav>
+    <button class="theme-toggle" id="themeToggle" type="button">
+      <span id="themeIcon">🌙</span> <span id="themeLabel">Dark</span>
+    </button>
+  </nav>
+</header>
+
+<div class="auth-wrap">
+  <div class="auth-hero">
+    <div style="font-size:2rem;">🏠</div>
+    <h1>Welcome to HomeNest</h1>
+    <p>Find a place to rent, or list your property to renters.</p>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabLogin" type="button">Log In</button>
+      <button class="tab-btn" id="tabRegister" type="button">Register</button>
+    </div>
+
+    <div id="authAlert"></div>
+
+    <!-- LOGIN FORM -->
+    <form id="loginForm">
+      <div class="field">
+        <label for="loginEmail">Email</label>
+        <input class="input" type="email" id="loginEmail" required autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="loginPassword">Password</label>
+        <input class="input" type="password" id="loginPassword" required autocomplete="current-password" />
+      </div>
+      <button class="btn btn-block" type="submit">Log In</button>
+    </form>
+
+    <!-- REGISTER FORM -->
+    <form id="registerForm" class="hidden">
+      <div class="field">
+        <label>I am a...</label>
+        <div class="role-toggle">
+          <div class="role-option selected" data-role="renter">🔑 Renter</div>
+          <div class="role-option" data-role="landlord">🏘️ Landlord</div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="regName">Full Name</label>
+        <input class="input" type="text" id="regName" required />
+      </div>
+      <div class="field">
+        <label for="regEmail">Email</label>
+        <input class="input" type="email" id="regEmail" required autocomplete="email" />
+      </div>
+      <div class="field">
+        <label for="regPhone">Phone Number</label>
+        <input class="input" type="tel" id="regPhone" required />
+      </div>
+      <div class="field">
+        <label for="regPassword">Password</label>
+        <input class="input" type="password" id="regPassword" required minlength="6" autocomplete="new-password" />
+      </div>
+      <button class="btn btn-block" type="submit">Create Account</button>
+    </form>
+  </div>
+</div>
+
+<footer class="app-footer">HomeNest &middot; a demo rental marketplace</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

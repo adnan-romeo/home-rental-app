@@ -1,0 +1,4 @@
+node_modules/
+rental_app.db
+rental_app.db-shm
+rental_app.db-wal
