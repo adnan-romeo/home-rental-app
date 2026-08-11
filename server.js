@@ -2,12 +2,13 @@
 // Home Rental Web Application - backend API server.
 // Express + SQLite (better-sqlite3) + bcryptjs + express-session.
 
+require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 
-const db = require('./db');
+const { db, init } = require('./db');
 const SQLiteSessionStore = require('./session-store');
 const { requireAuth, requireRole } = require('./middleware/auth');
 
@@ -53,11 +54,7 @@ function sanitizeUser(user) {
 
 function asyncRoute(fn) {
   return (req, res, next) => {
-    try {
-      fn(req, res, next);
-    } catch (err) {
-      next(err);
-    }
+    Promise.resolve(fn(req, res, next)).catch(next);
   };
 }
 
@@ -110,7 +107,7 @@ function photosToStorage(value) {
 
 app.post(
   '/api/auth/register',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { name, email, password, role, phone } = req.body;
 
     if (!isNonEmptyString(name) || !isNonEmptyString(email) || !isNonEmptyString(password) || !isNonEmptyString(phone)) {
@@ -123,18 +120,21 @@ app.post(
       return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
     }
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase().trim());
+    const existingRes = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
+    const existing = (existingRes && existingRes.rows && existingRes.rows[0]) || null;
     if (existing) {
       return res.status(409).json({ error: 'An account with that email already exists.' });
     }
 
     const password_hash = bcrypt.hashSync(password, 10);
 
-    const info = db
-      .prepare('INSERT INTO users (name, email, password_hash, role, phone) VALUES (?, ?, ?, ?, ?)')
-      .run(name.trim(), email.toLowerCase().trim(), password_hash, role, phone.trim());
+    await db.execute({
+      sql: 'INSERT INTO users (name, email, password_hash, role, phone) VALUES (?, ?, ?, ?, ?)',
+      args: [name.trim(), email.toLowerCase().trim(), password_hash, role, phone.trim()]
+    });
 
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+    const userRes = await db.execute({ sql: 'SELECT * FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
+    const user = (userRes && userRes.rows && userRes.rows[0]) || null;
 
     req.session.user = { id: user.id, name: user.name, email: user.email, role: user.role };
     res.status(201).json({ user: sanitizeUser(user) });
@@ -143,13 +143,13 @@ app.post(
 
 app.post(
   '/api/auth/login',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { email, password } = req.body;
     if (!isNonEmptyString(email) || !isNonEmptyString(password)) {
       return res.status(400).json({ error: 'Email and password are required.' });
     }
-
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim());
+    const userRes = await db.execute({ sql: 'SELECT * FROM users WHERE email = ?', args: [email.toLowerCase().trim()] });
+    const user = (userRes && userRes.rows && userRes.rows[0]) || null;
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
@@ -166,12 +166,13 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-app.get('/api/auth/me', (req, res) => {
+app.get('/api/auth/me', asyncRoute(async (req, res) => {
   if (!req.session.user) return res.status(401).json({ error: 'Not authenticated.' });
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.user.id);
+  const userRes = await db.execute({ sql: 'SELECT * FROM users WHERE id = ?', args: [req.session.user.id] });
+  const user = (userRes && userRes.rows && userRes.rows[0]) || null;
   if (!user) return res.status(401).json({ error: 'Not authenticated.' });
   res.json({ user: sanitizeUser(user) });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // LISTING ROUTES
@@ -181,16 +182,15 @@ app.get('/api/auth/me', (req, res) => {
 // If a logged-in landlord passes ?mine=1, return all of their own listings instead.
 app.get(
   '/api/listings',
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { minRent, maxRent, location, rooms, mine } = req.query;
 
     if (mine === '1') {
       if (!req.session.user || req.session.user.role !== 'landlord') {
         return res.status(401).json({ error: 'You must be logged in as a landlord to view your listings.' });
       }
-      const listings = db
-        .prepare('SELECT * FROM listings WHERE landlord_id = ? ORDER BY created_at DESC')
-        .all(req.session.user.id);
+      const listingsRes = await db.execute({ sql: 'SELECT * FROM listings WHERE landlord_id = ? ORDER BY created_at DESC', args: [req.session.user.id] });
+      const listings = listingsRes.rows || [];
       return res.json({ listings: hydrateListings(listings) });
     }
 
@@ -215,21 +215,22 @@ app.get(
     }
     query += ' ORDER BY created_at DESC';
 
-    const listings = db.prepare(query).all(...params);
+    const listingsRes = await db.execute({ sql: query, args: params });
+    const listings = listingsRes.rows || [];
     res.json({ listings: hydrateListings(listings) });
   })
 );
 
 app.get(
   '/api/listings/:id',
-  asyncRoute((req, res) => {
-    const listing = db
-      .prepare(
-        `SELECT listings.*, users.name AS poster_name, users.phone AS poster_phone, users.email AS poster_email
+  asyncRoute(async (req, res) => {
+    const listingRes = await db.execute({
+      sql: `SELECT listings.*, users.name AS poster_name, users.phone AS poster_phone, users.email AS poster_email
          FROM listings JOIN users ON users.id = listings.landlord_id
-         WHERE listings.id = ?`
-      )
-      .get(req.params.id);
+         WHERE listings.id = ?`,
+      args: [req.params.id]
+    });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
 
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
     res.json({ listing: hydrateListing(listing) });
@@ -239,7 +240,7 @@ app.get(
 app.post(
   '/api/listings',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { title, description, rent_fee, location, rooms, listing_type, is_sublet, photos } = req.body;
     const normalizedType = parseListingType(listing_type);
 
@@ -255,12 +256,10 @@ app.post(
       return res.status(400).json({ error: 'Rooms must be a positive whole number.' });
     }
 
-    const info = db
-      .prepare(
-        `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, listing_type, is_sublet, photos, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`
-      )
-      .run(
+    const insertRes = await db.execute({
+      sql: `INSERT INTO listings (landlord_id, title, description, rent_fee, location, rooms, listing_type, is_sublet, photos, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'available') RETURNING *`,
+      args: [
         req.session.user.id,
         title.trim(),
         (description || '').trim(),
@@ -270,9 +269,9 @@ app.post(
         normalizedType,
         parseBooleanFlag(is_sublet),
         photosToStorage(photos)
-      );
-
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(info.lastInsertRowid);
+      ]
+    });
+    const listing = (insertRes && insertRes.rows && insertRes.rows[0]) || null;
     res.status(201).json({ listing: hydrateListing(listing) });
   })
 );
@@ -280,8 +279,9 @@ app.post(
 app.put(
   '/api/listings/:id',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
+  asyncRoute(async (req, res) => {
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [req.params.id] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
     if (listing.landlord_id !== req.session.user.id) {
       return res.status(403).json({ error: 'You can only edit your own listings.' });
@@ -299,11 +299,13 @@ app.put(
     const newSublet = is_sublet !== undefined ? parseBooleanFlag(is_sublet) : listing.is_sublet;
     const newPhotos = photos !== undefined ? photosToStorage(photos) : listing.photos;
 
-    db.prepare(
-      `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, listing_type = ?, is_sublet = ?, photos = ?, status = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newFee, newLocation, newRooms, newType, newSublet, newPhotos, newStatus, listing.id);
+    await db.execute({
+      sql: `UPDATE listings SET title = ?, description = ?, rent_fee = ?, location = ?, rooms = ?, listing_type = ?, is_sublet = ?, photos = ?, status = ? WHERE id = ?`,
+      args: [newTitle, newDescription, newFee, newLocation, newRooms, newType, newSublet, newPhotos, newStatus, listing.id]
+    });
 
-    const updated = db.prepare('SELECT * FROM listings WHERE id = ?').get(listing.id);
+    const updatedRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [listing.id] });
+    const updated = (updatedRes && updatedRes.rows && updatedRes.rows[0]) || null;
     res.json({ listing: hydrateListing(updated) });
   })
 );
@@ -311,13 +313,14 @@ app.put(
 app.delete(
   '/api/listings/:id',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id);
+  asyncRoute(async (req, res) => {
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [req.params.id] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
     if (listing.landlord_id !== req.session.user.id) {
       return res.status(403).json({ error: 'You can only delete your own listings.' });
     }
-    db.prepare('DELETE FROM listings WHERE id = ?').run(listing.id);
+    await db.execute({ sql: 'DELETE FROM listings WHERE id = ?', args: [listing.id] });
     res.json({ success: true });
   })
 );
@@ -329,26 +332,23 @@ app.delete(
 app.post(
   '/api/requests',
   requireRole('renter'),
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { listingId } = req.body;
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(listingId);
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [listingId] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
     if (listing.status !== 'available') {
       return res.status(400).json({ error: 'This listing is no longer available.' });
     }
 
-    const existing = db
-      .prepare("SELECT * FROM rental_requests WHERE listing_id = ? AND renter_id = ? AND status = 'pending'")
-      .get(listingId, req.session.user.id);
+    const existingRes = await db.execute({ sql: "SELECT * FROM rental_requests WHERE listing_id = ? AND renter_id = ? AND status = 'pending'", args: [listingId, req.session.user.id] });
+    const existing = (existingRes && existingRes.rows && existingRes.rows[0]) || null;
     if (existing) {
       return res.status(409).json({ error: 'You already have a pending request for this listing.' });
     }
 
-    const info = db
-      .prepare("INSERT INTO rental_requests (listing_id, renter_id, status) VALUES (?, ?, 'pending')")
-      .run(listingId, req.session.user.id);
-
-    const request = db.prepare('SELECT * FROM rental_requests WHERE id = ?').get(info.lastInsertRowid);
+    const insertRes = await db.execute({ sql: "INSERT INTO rental_requests (listing_id, renter_id, status) VALUES (?, ?, 'pending') RETURNING *", args: [listingId, req.session.user.id] });
+    const request = (insertRes && insertRes.rows && insertRes.rows[0]) || null;
     res.status(201).json({ request });
   })
 );
@@ -356,16 +356,16 @@ app.post(
 app.get(
   '/api/requests/mine',
   requireRole('renter'),
-  asyncRoute((req, res) => {
-    const requests = db
-      .prepare(
-        `SELECT rental_requests.*, listings.title, listings.location, listings.rent_fee, listings.rooms, listings.status AS listing_status
+  asyncRoute(async (req, res) => {
+    const requestsRes = await db.execute({
+      sql: `SELECT rental_requests.*, listings.title, listings.location, listings.rent_fee, listings.rooms, listings.status AS listing_status
          FROM rental_requests
          JOIN listings ON listings.id = rental_requests.listing_id
          WHERE rental_requests.renter_id = ?
-         ORDER BY rental_requests.created_at DESC`
-      )
-      .all(req.session.user.id);
+         ORDER BY rental_requests.created_at DESC`,
+      args: [req.session.user.id]
+    });
+    const requests = requestsRes.rows || [];
     res.json({ requests });
   })
 );
@@ -373,17 +373,17 @@ app.get(
 app.get(
   '/api/requests/incoming',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
-    const requests = db
-      .prepare(
-        `SELECT rental_requests.*, listings.title AS listing_title, users.name AS renter_name, users.phone AS renter_phone, users.email AS renter_email
+  asyncRoute(async (req, res) => {
+    const requestsRes = await db.execute({
+      sql: `SELECT rental_requests.*, listings.title AS listing_title, users.name AS renter_name, users.phone AS renter_phone, users.email AS renter_email
          FROM rental_requests
          JOIN listings ON listings.id = rental_requests.listing_id
          JOIN users ON users.id = rental_requests.renter_id
          WHERE listings.landlord_id = ?
-         ORDER BY rental_requests.created_at DESC`
-      )
-      .all(req.session.user.id);
+         ORDER BY rental_requests.created_at DESC`,
+      args: [req.session.user.id]
+    });
+    const requests = requestsRes.rows || [];
     res.json({ requests });
   })
 );
@@ -391,11 +391,13 @@ app.get(
 app.put(
   '/api/requests/:id/accept',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
-    const request = db.prepare('SELECT * FROM rental_requests WHERE id = ?').get(req.params.id);
+  asyncRoute(async (req, res) => {
+    const requestRes = await db.execute({ sql: 'SELECT * FROM rental_requests WHERE id = ?', args: [req.params.id] });
+    const request = (requestRes && requestRes.rows && requestRes.rows[0]) || null;
     if (!request) return res.status(404).json({ error: 'Request not found.' });
 
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(request.listing_id);
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [request.listing_id] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing || listing.landlord_id !== req.session.user.id) {
       return res.status(403).json({ error: 'You can only manage requests for your own listings.' });
     }
@@ -406,21 +408,21 @@ app.put(
       return res.status(400).json({ error: 'This listing is already rented.' });
     }
 
-    const acceptTxn = db.transaction(() => {
-      db.prepare("UPDATE rental_requests SET status = 'accepted' WHERE id = ?").run(request.id);
-      db.prepare("UPDATE listings SET status = 'rented' WHERE id = ?").run(listing.id);
-      // Auto-reject any other pending requests for the same listing
-      db.prepare(
-        "UPDATE rental_requests SET status = 'rejected' WHERE listing_id = ? AND id != ? AND status = 'pending'"
-      ).run(listing.id, request.id);
-      // Seed the current month's payment record as unpaid
-      db.prepare(
-        `INSERT OR IGNORE INTO payments (listing_id, renter_id, month, is_paid, amount) VALUES (?, ?, ?, 0, ?)`
-      ).run(listing.id, request.renter_id, currentMonth(), listing.rent_fee);
-    });
-    acceptTxn();
+    // Transaction: try to run statements atomically using BEGIN/COMMIT.
+    await db.execute({ sql: 'BEGIN' });
+    try {
+      await db.execute({ sql: "UPDATE rental_requests SET status = 'accepted' WHERE id = ?", args: [request.id] });
+      await db.execute({ sql: "UPDATE listings SET status = 'rented' WHERE id = ?", args: [listing.id] });
+      await db.execute({ sql: "UPDATE rental_requests SET status = 'rejected' WHERE listing_id = ? AND id != ? AND status = 'pending'", args: [listing.id, request.id] });
+      await db.execute({ sql: `INSERT OR IGNORE INTO payments (listing_id, renter_id, month, is_paid, amount) VALUES (?, ?, ?, 0, ?)`, args: [listing.id, request.renter_id, currentMonth(), listing.rent_fee] });
+      await db.execute({ sql: 'COMMIT' });
+    } catch (err) {
+      await db.execute({ sql: 'ROLLBACK' });
+      throw err;
+    }
 
-    const updated = db.prepare('SELECT * FROM rental_requests WHERE id = ?').get(request.id);
+    const updatedRes = await db.execute({ sql: 'SELECT * FROM rental_requests WHERE id = ?', args: [request.id] });
+    const updated = (updatedRes && updatedRes.rows && updatedRes.rows[0]) || null;
     res.json({ request: updated });
   })
 );
@@ -428,11 +430,13 @@ app.put(
 app.put(
   '/api/requests/:id/reject',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
-    const request = db.prepare('SELECT * FROM rental_requests WHERE id = ?').get(req.params.id);
+  asyncRoute(async (req, res) => {
+    const requestRes = await db.execute({ sql: 'SELECT * FROM rental_requests WHERE id = ?', args: [req.params.id] });
+    const request = (requestRes && requestRes.rows && requestRes.rows[0]) || null;
     if (!request) return res.status(404).json({ error: 'Request not found.' });
 
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(request.listing_id);
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [request.listing_id] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing || listing.landlord_id !== req.session.user.id) {
       return res.status(403).json({ error: 'You can only manage requests for your own listings.' });
     }
@@ -440,8 +444,9 @@ app.put(
       return res.status(400).json({ error: 'Only pending requests can be rejected.' });
     }
 
-    db.prepare("UPDATE rental_requests SET status = 'rejected' WHERE id = ?").run(request.id);
-    const updated = db.prepare('SELECT * FROM rental_requests WHERE id = ?').get(request.id);
+    await db.execute({ sql: "UPDATE rental_requests SET status = 'rejected' WHERE id = ?", args: [request.id] });
+    const updatedRes = await db.execute({ sql: 'SELECT * FROM rental_requests WHERE id = ?', args: [request.id] });
+    const updated = (updatedRes && updatedRes.rows && updatedRes.rows[0]) || null;
     res.json({ request: updated });
   })
 );
@@ -454,9 +459,10 @@ app.put(
 app.post(
   '/api/payments/toggle',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const { listingId } = req.body;
-    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(listingId);
+    const listingRes = await db.execute({ sql: 'SELECT * FROM listings WHERE id = ?', args: [listingId] });
+    const listing = (listingRes && listingRes.rows && listingRes.rows[0]) || null;
     if (!listing) return res.status(404).json({ error: 'Listing not found.' });
     if (listing.landlord_id !== req.session.user.id) {
       return res.status(403).json({ error: 'You can only manage payments for your own listings.' });
@@ -465,30 +471,25 @@ app.post(
       return res.status(400).json({ error: 'This listing is not currently rented.' });
     }
 
-    const acceptedRequest = db
-      .prepare("SELECT * FROM rental_requests WHERE listing_id = ? AND status = 'accepted' ORDER BY created_at DESC LIMIT 1")
-      .get(listing.id);
+    const acceptedReqRes = await db.execute({ sql: "SELECT * FROM rental_requests WHERE listing_id = ? AND status = 'accepted' ORDER BY created_at DESC LIMIT 1", args: [listing.id] });
+    const acceptedRequest = (acceptedReqRes && acceptedReqRes.rows && acceptedReqRes.rows[0]) || null;
     if (!acceptedRequest) {
       return res.status(400).json({ error: 'No active renter found for this listing.' });
     }
 
     const month = currentMonth();
-    let payment = db
-      .prepare('SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?')
-      .get(listing.id, acceptedRequest.renter_id, month);
+    const paymentRes = await db.execute({ sql: 'SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?', args: [listing.id, acceptedRequest.renter_id, month] });
+    let payment = (paymentRes && paymentRes.rows && paymentRes.rows[0]) || null;
 
     if (!payment) {
-      db.prepare(
-        'INSERT INTO payments (listing_id, renter_id, month, is_paid, amount) VALUES (?, ?, ?, 1, ?)'
-      ).run(listing.id, acceptedRequest.renter_id, month, listing.rent_fee);
+      await db.execute({ sql: 'INSERT INTO payments (listing_id, renter_id, month, is_paid, amount) VALUES (?, ?, ?, 1, ?)', args: [listing.id, acceptedRequest.renter_id, month, listing.rent_fee] });
     } else {
-      db.prepare('UPDATE payments SET is_paid = ? WHERE id = ?').run(payment.is_paid ? 0 : 1, payment.id);
+      await db.execute({ sql: 'UPDATE payments SET is_paid = ? WHERE id = ?', args: [payment.is_paid ? 0 : 1, payment.id] });
     }
 
-    payment = db
-      .prepare('SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?')
-      .get(listing.id, acceptedRequest.renter_id, month);
-    res.json({ payment });
+    const newPaymentRes = await db.execute({ sql: 'SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?', args: [listing.id, acceptedRequest.renter_id, month] });
+    const newPayment = (newPaymentRes && newPaymentRes.rows && newPaymentRes.rows[0]) || null;
+    res.json({ payment: newPayment });
   })
 );
 
@@ -499,89 +500,79 @@ app.post(
 app.get(
   '/api/dashboard/landlord',
   requireRole('landlord'),
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const landlordId = req.session.user.id;
-    const listings = db.prepare('SELECT * FROM listings WHERE landlord_id = ?').all(landlordId);
+    const listingsRes = await db.execute({ sql: 'SELECT * FROM listings WHERE landlord_id = ?', args: [landlordId] });
+    const listings = listingsRes.rows || [];
 
     const totalListings = listings.length;
     const rentedCount = listings.filter((l) => l.status === 'rented').length;
     const vacantCount = listings.filter((l) => l.status === 'available').length;
 
-    const pendingRequestsCount = db
-      .prepare(
-        `SELECT COUNT(*) AS count FROM rental_requests
+    const pendingRes = await db.execute({
+      sql: `SELECT COUNT(*) AS count FROM rental_requests
          JOIN listings ON listings.id = rental_requests.listing_id
-         WHERE listings.landlord_id = ? AND rental_requests.status = 'pending'`
-      )
-      .get(landlordId).count;
+         WHERE listings.landlord_id = ? AND rental_requests.status = 'pending'`,
+      args: [landlordId]
+    });
+    const pendingRequestsCount = (pendingRes && pendingRes.rows && pendingRes.rows[0] && pendingRes.rows[0].count) || 0;
 
     const month = currentMonth();
-    const rentedUnits = listings
-      .filter((l) => l.status === 'rented')
-      .map((listing) => {
-        const acceptedRequest = db
-          .prepare(
-            `SELECT rental_requests.*, users.name AS renter_name, users.phone AS renter_phone
+    const rentedUnits = [];
+    for (const listing of listings.filter((l) => l.status === 'rented')) {
+      const acceptedReqRes = await db.execute({
+        sql: `SELECT rental_requests.*, users.name AS renter_name, users.phone AS renter_phone
              FROM rental_requests JOIN users ON users.id = rental_requests.renter_id
              WHERE listing_id = ? AND rental_requests.status = 'accepted'
-             ORDER BY rental_requests.created_at DESC LIMIT 1`
-          )
-          .get(listing.id);
-
-        let payment = null;
-        if (acceptedRequest) {
-          payment = db
-            .prepare('SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?')
-            .get(listing.id, acceptedRequest.renter_id, month);
-        }
-
-        return {
-          listing,
-          renter: acceptedRequest
-            ? { id: acceptedRequest.renter_id, name: acceptedRequest.renter_name, phone: acceptedRequest.renter_phone }
-            : null,
-          payment: payment || { month, is_paid: 0, amount: listing.rent_fee }
-        };
+             ORDER BY rental_requests.created_at DESC LIMIT 1`,
+        args: [listing.id]
       });
+      const acceptedRequest = (acceptedReqRes && acceptedReqRes.rows && acceptedReqRes.rows[0]) || null;
 
-    res.json({
-      stats: { totalListings, rentedCount, vacantCount, pendingRequestsCount },
-      rentedUnits
-    });
+      let payment = null;
+      if (acceptedRequest) {
+        const paymentRes = await db.execute({ sql: 'SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?', args: [listing.id, acceptedRequest.renter_id, month] });
+        payment = (paymentRes && paymentRes.rows && paymentRes.rows[0]) || null;
+      }
+
+      rentedUnits.push({
+        listing,
+        renter: acceptedRequest ? { id: acceptedRequest.renter_id, name: acceptedRequest.renter_name, phone: acceptedRequest.renter_phone } : null,
+        payment: payment || { month, is_paid: 0, amount: listing.rent_fee }
+      });
+    }
+
+    res.json({ stats: { totalListings, rentedCount, vacantCount, pendingRequestsCount }, rentedUnits });
   })
 );
 
 app.get(
   '/api/dashboard/renter',
   requireRole('renter'),
-  asyncRoute((req, res) => {
+  asyncRoute(async (req, res) => {
     const renterId = req.session.user.id;
     const month = currentMonth();
 
-    const activeRequest = db
-      .prepare(
-        `SELECT rental_requests.*, listings.title, listings.location, listings.rent_fee, listings.rooms, listings.id AS listing_id,
+    const activeRes = await db.execute({
+      sql: `SELECT rental_requests.*, listings.title, listings.location, listings.rent_fee, listings.rooms, listings.id AS listing_id,
                 users.name AS landlord_name, users.phone AS landlord_phone
          FROM rental_requests
          JOIN listings ON listings.id = rental_requests.listing_id
          JOIN users ON users.id = listings.landlord_id
          WHERE rental_requests.renter_id = ? AND rental_requests.status = 'accepted'
-         ORDER BY rental_requests.created_at DESC LIMIT 1`
-      )
-      .get(renterId);
+         ORDER BY rental_requests.created_at DESC LIMIT 1`,
+      args: [renterId]
+    });
+    const activeRequest = (activeRes && activeRes.rows && activeRes.rows[0]) || null;
 
     let payment = null;
     if (activeRequest) {
-      payment = db
-        .prepare('SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?')
-        .get(activeRequest.listing_id, renterId, month);
+      const paymentRes = await db.execute({ sql: 'SELECT * FROM payments WHERE listing_id = ? AND renter_id = ? AND month = ?', args: [activeRequest.listing_id, renterId, month] });
+      payment = (paymentRes && paymentRes.rows && paymentRes.rows[0]) || null;
     }
 
-    const requestCounts = db
-      .prepare(
-        `SELECT status, COUNT(*) AS count FROM rental_requests WHERE renter_id = ? GROUP BY status`
-      )
-      .all(renterId);
+    const countsRes = await db.execute({ sql: `SELECT status, COUNT(*) AS count FROM rental_requests WHERE renter_id = ? GROUP BY status`, args: [renterId] });
+    const requestCounts = countsRes.rows || [];
 
     res.json({
       activeRental: activeRequest || null,
@@ -610,6 +601,13 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'An unexpected server error occurred. Please try again.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Home Rental App running at http://localhost:${PORT}`);
-});
+init()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Home Rental App running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to initialize database, server not started.', err);
+    process.exit(1);
+  });

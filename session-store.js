@@ -1,17 +1,15 @@
 const session = require('express-session');
-const db = require('./db');
+const { db } = require('./db');
 
-const selectSession = db.prepare('SELECT data, expires_at FROM sessions WHERE sid = ?');
-const upsertSession = db.prepare(
-  `INSERT INTO sessions (sid, data, expires_at, updated_at)
-   VALUES (@sid, @data, @expires_at, datetime('now'))
+const deleteExpiredSessionsSql = 'DELETE FROM sessions WHERE expires_at <= ?';
+const selectSessionSql = 'SELECT data, expires_at FROM sessions WHERE sid = ?';
+const upsertSessionSql = `INSERT INTO sessions (sid, data, expires_at, updated_at)
+   VALUES (?, ?, ?, datetime('now'))
    ON CONFLICT(sid) DO UPDATE SET
      data = excluded.data,
      expires_at = excluded.expires_at,
-     updated_at = datetime('now')`
-);
-const deleteSession = db.prepare('DELETE FROM sessions WHERE sid = ?');
-const deleteExpiredSessions = db.prepare('DELETE FROM sessions WHERE expires_at <= ?');
+     updated_at = datetime('now')`;
+const deleteSessionSql = 'DELETE FROM sessions WHERE sid = ?';
 
 function toExpiryTime(sess) {
   const cookie = sess && sess.cookie;
@@ -29,43 +27,46 @@ function toExpiryTime(sess) {
 class SQLiteSessionStore extends session.Store {
   constructor() {
     super();
-    deleteExpiredSessions.run(Date.now());
+    db.execute({ sql: deleteExpiredSessionsSql, args: [Date.now()] }).catch(() => {});
   }
 
   get(sid, callback) {
-    try {
-      const row = selectSession.get(sid);
-      if (!row) return callback(null, null);
-      if (row.expires_at <= Date.now()) {
-        deleteSession.run(sid);
-        return callback(null, null);
+    (async () => {
+      try {
+        const res = await db.execute({ sql: selectSessionSql, args: [sid] });
+        const row = res && res.rows && res.rows[0];
+        if (!row) return callback(null, null);
+        if (row.expires_at <= Date.now()) {
+          await db.execute({ sql: deleteSessionSql, args: [sid] });
+          return callback(null, null);
+        }
+        return callback(null, JSON.parse(row.data));
+      } catch (err) {
+        return callback(err);
       }
-      return callback(null, JSON.parse(row.data));
-    } catch (err) {
-      return callback(err);
-    }
+    })();
   }
 
   set(sid, sess, callback) {
-    try {
-      upsertSession.run({
-        sid,
-        data: JSON.stringify(sess),
-        expires_at: toExpiryTime(sess)
-      });
-      return callback && callback(null);
-    } catch (err) {
-      return callback && callback(err);
-    }
+    (async () => {
+      try {
+        await db.execute({ sql: upsertSessionSql, args: [sid, JSON.stringify(sess), toExpiryTime(sess)] });
+        return callback && callback(null);
+      } catch (err) {
+        return callback && callback(err);
+      }
+    })();
   }
 
   destroy(sid, callback) {
-    try {
-      deleteSession.run(sid);
-      return callback && callback(null);
-    } catch (err) {
-      return callback && callback(err);
-    }
+    (async () => {
+      try {
+        await db.execute({ sql: deleteSessionSql, args: [sid] });
+        return callback && callback(null);
+      } catch (err) {
+        return callback && callback(err);
+      }
+    })();
   }
 
   touch(sid, sess, callback) {
